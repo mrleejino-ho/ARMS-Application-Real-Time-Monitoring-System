@@ -71,12 +71,8 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route
-          path="/classes/:classId"
-          element={<ClassDetails />}
-        /> 
         
-
+      
         {/* Default */}
         <Route
           path="/"
@@ -111,6 +107,11 @@ export default function App() {
             path="/classes"
             element={<Classes />}
           />
+
+          <Route
+            path="/classes/:classId"
+            element={<ClassDetails />}
+          /> 
 
           <Route
             path="/students"

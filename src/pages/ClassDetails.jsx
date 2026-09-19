@@ -7,7 +7,9 @@ import {
   Search,
   Check,
   X,
+  Trash2,
 } from "lucide-react";
+
 import { useNavigate, useParams } from "react-router-dom";
 import { useEffect, useState } from "react";
 
@@ -19,6 +21,7 @@ export default function ClassDetails() {
 
   const [classData, setClassData] = useState(null);
   const [students, setStudents] = useState([]);
+  const [devices, setDevices] = useState([]);
 
   const [loading, setLoading] = useState(true);
   const [showAddStudent, setShowAddStudent] = useState(false);
@@ -27,12 +30,15 @@ export default function ClassDetails() {
     try {
       setLoading(true);
 
-      const { data: classResult, error: classError } =
-        await supabase
-          .from("classes")
-          .select("*")
-          .eq("id", classId)
-          .single();
+      // Load class information
+      const {
+        data: classResult,
+        error: classError,
+      } = await supabase
+        .from("classes")
+        .select("*")
+        .eq("id", classId)
+        .single();
 
       if (classError) {
         throw classError;
@@ -40,32 +46,79 @@ export default function ClassDetails() {
 
       setClassData(classResult);
 
-      const { data: studentResult, error: studentError } =
-        await supabase
-          .from("class_students")
-          .select(`
+      // Load enrolled students
+      const {
+        data: studentResult,
+        error: studentError,
+      } = await supabase
+        .from("class_students")
+        .select(`
+          id,
+          student_id,
+          status,
+          joined_at,
+          profiles (
             id,
-            status,
-            joined_at,
-            profiles (
-              id,
-              full_name,
-              email,
-              grade_level,
-              strand,
-              section
-            )
-          `)
-          .eq("class_id", classId)
-          .order("joined_at", {
-            ascending: true,
-          });
+            full_name,
+            email,
+            grade_level,
+            strand,
+            section
+          )
+        `)
+        .eq("class_id", classId)
+        .order("joined_at", {
+          ascending: true,
+        });
 
       if (studentError) {
         throw studentError;
       }
 
-      setStudents(studentResult || []);
+      const enrolledStudents = studentResult || [];
+
+      setStudents(enrolledStudents);
+
+      // Get student profile IDs
+      const studentIds = enrolledStudents
+        .map((item) => item.profiles?.id || item.student_id)
+        .filter(Boolean);
+
+      // Load devices belonging to enrolled students
+      if (studentIds.length > 0) {
+        const {
+          data: deviceResult,
+          error: deviceError,
+        } = await supabase
+          .from("devices")
+          .select(`
+            id,
+            student_id,
+            device_name,
+            device_model,
+            manufacturer,
+            android_version,
+            device_identifier,
+            is_active,
+            last_seen,
+            registered_at,
+            updated_at
+          `)
+          .in("student_id", studentIds);
+
+        if (deviceError) {
+          console.error(
+            "Failed to load devices:",
+            deviceError
+          );
+
+          setDevices([]);
+        } else {
+          setDevices(deviceResult || []);
+        }
+      } else {
+        setDevices([]);
+      }
     } catch (error) {
       console.error(
         "Failed to load class:",
@@ -74,6 +127,59 @@ export default function ClassDetails() {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function handleRemoveStudent(
+    enrollmentId,
+    studentName
+  ) {
+    const confirmed = window.confirm(
+      `Remove ${studentName} from this class?`
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from("class_students")
+        .delete()
+        .eq("id", enrollmentId);
+
+      if (error) {
+        throw error;
+      }
+
+      await loadClass();
+    } catch (error) {
+      console.error(
+        "Failed to remove student:",
+        error
+      );
+
+      window.alert(
+        error.message ||
+          "Failed to remove student."
+      );
+    }
+  }
+
+  function getStudentDevice(student) {
+    const studentId =
+      student.profiles?.id || student.student_id;
+
+    return devices.find(
+      (device) => device.student_id === studentId
+    );
+  }
+
+  function formatLastSeen(lastSeen) {
+    if (!lastSeen) {
+      return "Never connected";
+    }
+
+    return new Date(lastSeen).toLocaleString();
   }
 
   useEffect(() => {
@@ -105,6 +211,8 @@ export default function ClassDetails() {
       </div>
     );
   }
+
+  const registeredDeviceCount = devices.length;
 
   return (
     <div className="space-y-8">
@@ -148,7 +256,7 @@ export default function ClassDetails() {
         <StatCard
           icon={Smartphone}
           title="Devices"
-          value="0"
+          value={registeredDeviceCount}
         />
 
         <StatCard
@@ -187,39 +295,128 @@ export default function ClassDetails() {
           </div>
         ) : (
           <div className="divide-y divide-neutral-800">
-            {students.map((item) => (
-              <div
-                key={item.id}
-                className="flex flex-col gap-4 px-5 py-4 sm:flex-row sm:items-center sm:justify-between"
-              >
-                <div>
-                  <p className="font-medium text-white">
-                    {item.profiles?.full_name}
-                  </p>
+            {students.map((item) => {
+              const device = getStudentDevice(item);
 
-                  <p className="mt-1 text-sm text-neutral-500">
-                    {item.profiles?.email}
-                  </p>
+              return (
+                <div
+                  key={item.id}
+                  className="flex flex-col gap-5 px-5 py-5 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  {/* Student Information */}
+                  <div className="min-w-0">
+                    <p className="font-medium text-white">
+                      {item.profiles?.full_name ||
+                        "Unknown Student"}
+                    </p>
 
-                  <p className="mt-1 text-xs text-neutral-600">
-                    Grade {item.profiles?.grade_level} •{" "}
-                    {item.profiles?.strand}
-                    {item.profiles?.section
-                      ? ` • ${item.profiles.section}`
-                      : ""}
-                  </p>
+                    <p className="mt-1 text-sm text-neutral-500">
+                      {item.profiles?.email ||
+                        "No email available"}
+                    </p>
+
+                    <p className="mt-1 text-xs text-neutral-600">
+                      Grade{" "}
+                      {item.profiles?.grade_level} •{" "}
+                      {item.profiles?.strand}
+                      {item.profiles?.section
+                        ? ` • ${item.profiles.section}`
+                        : ""}
+                    </p>
+
+                    {/* Device Information */}
+                    <div className="mt-4 rounded-xl border border-neutral-800 bg-neutral-950/60 p-3">
+                      <div className="flex items-center gap-2">
+                        <Smartphone
+                          size={15}
+                          className="text-neutral-400"
+                        />
+
+                        <p className="text-xs font-medium uppercase tracking-wide text-neutral-500">
+                          Device
+                        </p>
+                      </div>
+
+                      {device ? (
+                        <div className="mt-2 space-y-1">
+                          <p className="text-sm font-medium text-white">
+                            {device.device_name ||
+                              device.device_model ||
+                              "Unnamed Device"}
+                          </p>
+
+                          <p className="text-xs text-neutral-500">
+                            {device.manufacturer ||
+                              "Unknown Manufacturer"}
+                            {device.android_version
+                              ? ` • Android ${device.android_version}`
+                              : ""}
+                          </p>
+
+                          <p className="text-xs text-neutral-600">
+                            Last seen:{" "}
+                            {formatLastSeen(
+                              device.last_seen
+                            )}
+                          </p>
+                        </div>
+                      ) : (
+                        <p className="mt-2 text-sm text-neutral-600">
+                          No device registered
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Student Actions */}
+                  <div className="flex flex-wrap items-center gap-3">
+                    <span
+                      className={`inline-flex w-fit rounded-full border px-3 py-1 text-xs ${
+                        item.status === "active"
+                          ? "border-emerald-900/70 text-emerald-400"
+                          : "border-neutral-700 text-neutral-400"
+                      }`}
+                    >
+                      {item.status}
+                    </span>
+
+                    {device && (
+                      <span
+                        className={`inline-flex w-fit rounded-full border px-3 py-1 text-xs ${
+                          device.is_active
+                            ? "border-emerald-900/70 text-emerald-400"
+                            : "border-red-900/70 text-red-400"
+                        }`}
+                      >
+                        {device.is_active
+                          ? "Device Active"
+                          : "Device Inactive"}
+                      </span>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        handleRemoveStudent(
+                          item.id,
+                          item.profiles?.full_name ||
+                            "this student"
+                        )
+                      }
+                      className="inline-flex items-center gap-2 rounded-lg border border-red-900/60 px-3 py-2 text-xs font-medium text-red-400 transition hover:bg-red-950/40 hover:text-red-300"
+                    >
+                      <Trash2 size={14} />
+                      Remove
+                    </button>
+                  </div>
                 </div>
-
-                <span className="inline-flex w-fit rounded-full border border-neutral-700 px-3 py-1 text-xs text-neutral-400">
-                  {item.status}
-                </span>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </section>
 
-      {/* Add student modal */}
+      {/* Add Student Modal */}
       {showAddStudent && (
         <AddStudentModal
           classId={classId}
@@ -258,7 +455,10 @@ function AddStudentModal({
         setLoading(true);
         setError("");
 
-        const { data, error } = await supabase
+        const {
+          data,
+          error: fetchError,
+        } = await supabase
           .from("profiles")
           .select(`
             id,
@@ -278,8 +478,8 @@ function AddStudentModal({
             ascending: true,
           });
 
-        if (error) {
-          throw error;
+        if (fetchError) {
+          throw fetchError;
         }
 
         setStudents(data || []);
@@ -303,7 +503,7 @@ function AddStudentModal({
 
   const enrolledIds = new Set(
     enrolledStudents.map(
-      (item) => item.profiles?.id
+      (item) => item.profiles?.id || item.student_id
     )
   );
 
@@ -331,16 +531,17 @@ function AddStudentModal({
     setError("");
 
     try {
-      const { error } = await supabase
-        .from("class_students")
-        .insert({
-          class_id: classId,
-          student_id: selectedStudent.id,
-          status: "active",
-        });
+      const { error: insertError } =
+        await supabase
+          .from("class_students")
+          .insert({
+            class_id: classId,
+            student_id: selectedStudent.id,
+            status: "active",
+          });
 
-      if (error) {
-        throw error;
+      if (insertError) {
+        throw insertError;
       }
 
       await onEnrolled();
@@ -350,9 +551,7 @@ function AddStudentModal({
         error
       );
 
-      if (
-        error.code === "23505"
-      ) {
+      if (error.code === "23505") {
         setError(
           "This student is already enrolled in this class."
         );
@@ -370,7 +569,6 @@ function AddStudentModal({
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
       <div className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-neutral-800 bg-neutral-950 shadow-2xl">
-
         {/* Header */}
         <div className="flex items-center justify-between border-b border-neutral-800 px-6 py-5">
           <div>
@@ -421,7 +619,7 @@ function AddStudentModal({
           </div>
         )}
 
-        {/* Student list */}
+        {/* Student List */}
         <div className="min-h-0 flex-1 overflow-y-auto p-5">
           {loading ? (
             <div className="py-10 text-center text-sm text-neutral-500">
@@ -440,76 +638,71 @@ function AddStudentModal({
             </div>
           ) : (
             <div className="space-y-2">
-              {filteredStudents.map(
-                (student) => {
-                  const alreadyEnrolled =
-                    enrolledIds.has(student.id);
+              {filteredStudents.map((student) => {
+                const alreadyEnrolled =
+                  enrolledIds.has(student.id);
 
-                  const selected =
-                    selectedStudent?.id ===
-                    student.id;
+                const selected =
+                  selectedStudent?.id === student.id;
 
-                  return (
-                    <button
-                      key={student.id}
-                      type="button"
-                      disabled={alreadyEnrolled}
-                      onClick={() => {
-                        if (!alreadyEnrolled) {
-                          setSelectedStudent(
-                            student
-                          );
-                        }
-                      }}
-                      className={`
-                        flex w-full items-center gap-4 rounded-xl border p-4 text-left transition
+                return (
+                  <button
+                    key={student.id}
+                    type="button"
+                    disabled={alreadyEnrolled}
+                    onClick={() => {
+                      if (!alreadyEnrolled) {
+                        setSelectedStudent(student);
+                      }
+                    }}
+                    className={`
+                      flex w-full items-center gap-4 rounded-xl border p-4 text-left transition
 
-                        ${
-                          alreadyEnrolled
-                            ? "cursor-not-allowed border-neutral-900 bg-neutral-900/40 opacity-50"
-                            : selected
-                              ? "border-white bg-neutral-800"
-                              : "border-neutral-800 bg-neutral-900 hover:border-neutral-600"
-                        }
-                      `}
-                    >
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-neutral-800 text-sm font-semibold">
-                        {student.full_name
-                          .charAt(0)
-                          .toUpperCase()}
+                      ${
+                        alreadyEnrolled
+                          ? "cursor-not-allowed border-neutral-900 bg-neutral-900/40 opacity-50"
+                          : selected
+                            ? "border-white bg-neutral-800"
+                            : "border-neutral-800 bg-neutral-900 hover:border-neutral-600"
+                      }
+                    `}
+                  >
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-neutral-800 text-sm font-semibold">
+                      {student.full_name
+                        .charAt(0)
+                        .toUpperCase()}
+                    </div>
+
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-white">
+                        {student.full_name}
+                      </p>
+
+                      <p className="mt-1 truncate text-xs text-neutral-500">
+                        {student.email}
+                      </p>
+
+                      <p className="mt-1 text-xs text-neutral-600">
+                        Grade {student.grade_level} •{" "}
+                        {student.strand}
+                        {student.section
+                          ? ` • ${student.section}`
+                          : ""}
+                      </p>
+                    </div>
+
+                    {alreadyEnrolled ? (
+                      <span className="rounded-full border border-neutral-700 px-2.5 py-1 text-[11px] text-neutral-500">
+                        Enrolled
+                      </span>
+                    ) : selected ? (
+                      <div className="flex h-7 w-7 items-center justify-center rounded-full bg-white text-black">
+                        <Check size={15} />
                       </div>
-
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium text-white">
-                          {student.full_name}
-                        </p>
-
-                        <p className="mt-1 truncate text-xs text-neutral-500">
-                          {student.email}
-                        </p>
-
-                        <p className="mt-1 text-xs text-neutral-600">
-                          Grade {student.grade_level} •{" "}
-                          {student.strand}
-                          {student.section
-                            ? ` • ${student.section}`
-                            : ""}
-                        </p>
-                      </div>
-
-                      {alreadyEnrolled ? (
-                        <span className="rounded-full border border-neutral-700 px-2.5 py-1 text-[11px] text-neutral-500">
-                          Enrolled
-                        </span>
-                      ) : selected ? (
-                        <div className="flex h-7 w-7 items-center justify-center rounded-full bg-white text-black">
-                          <Check size={15} />
-                        </div>
-                      ) : null}
-                    </button>
-                  );
-                }
-              )}
+                    ) : null}
+                  </button>
+                );
+              })}
             </div>
           )}
         </div>
