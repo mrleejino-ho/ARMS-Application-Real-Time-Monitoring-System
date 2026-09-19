@@ -1,29 +1,115 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  Activity,
+  CalendarDays,
+  CheckCircle2,
+  Clock3,
+  RefreshCw,
+  Radio,
+  School,
+  Timer,
+  XCircle,
+} from "lucide-react";
+
 import PageHeader from "../components/PageHeader";
-import { supabase } from "../lib/supabase";
+import { supabase } from "../services/supabase";
+
+function formatTime(timeValue) {
+  if (!timeValue) return "Not set";
+
+  const [hours, minutes] = timeValue.split(":");
+  const date = new Date();
+
+  date.setHours(Number(hours), Number(minutes), 0, 0);
+
+  return date.toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function formatDateTime(dateValue) {
+  if (!dateValue) return "Not available";
+
+  return new Date(dateValue).toLocaleString("en-PH", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+}
+
+function getStatusStyles(status) {
+  switch (status) {
+    case "active":
+      return {
+        label: "Active",
+        badge:
+          "border-emerald-500/40 bg-emerald-500/10 text-emerald-400",
+        icon: <Radio size={15} />,
+        dot: "bg-emerald-400",
+      };
+
+    case "ended":
+      return {
+        label: "Ended",
+        badge: "border-slate-500/40 bg-slate-500/10 text-slate-400",
+        icon: <CheckCircle2 size={15} />,
+        dot: "bg-slate-400",
+      };
+
+    case "cancelled":
+      return {
+        label: "Cancelled",
+        badge: "border-red-500/40 bg-red-500/10 text-red-400",
+        icon: <XCircle size={15} />,
+        dot: "bg-red-400",
+      };
+
+    default:
+      return {
+        label: "Scheduled",
+        badge: "border-yellow-500/40 bg-yellow-500/10 text-yellow-400",
+        icon: <Clock3 size={15} />,
+        dot: "bg-yellow-400",
+      };
+  }
+}
+
+function getCurrentScheduleStatus(classItem, session) {
+  if (session?.status) {
+    return session.status;
+  }
+
+  return "scheduled";
+}
 
 export default function Monitoring() {
   const [classes, setClasses] = useState([]);
   const [sessions, setSessions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState("");
+  const [errorMessage, setErrorMessage] = useState("");
+  const [lastUpdated, setLastUpdated] = useState(null);
 
-  const loadMonitoringData = useCallback(async (isRefresh = false) => {
+  const loadMonitoringData = useCallback(async (isManualRefresh = false) => {
     try {
-      if (isRefresh) {
+      if (isManualRefresh) {
         setRefreshing(true);
       } else {
         setLoading(true);
       }
 
-      setError("");
+      setErrorMessage("");
 
-      const [classesResult, sessionsResult] = await Promise.all([
+      const [
+        { data: classData, error: classError },
+        { data: sessionData, error: sessionError },
+      ] = await Promise.all([
         supabase
           .from("classes")
           .select(`
             id,
+            school_id,
+            teacher_id,
             class_name,
             grade_level,
             strand,
@@ -33,10 +119,13 @@ export default function Monitoring() {
             schedule_start,
             schedule_end,
             schedule_days,
-            status
+            status,
+            created_at
           `)
           .eq("status", "active")
-          .order("schedule_start", { ascending: true }),
+          .order("created_at", {
+            ascending: false,
+          }),
 
         supabase
           .from("monitoring_sessions")
@@ -49,22 +138,28 @@ export default function Monitoring() {
             status,
             created_at
           `)
-          .order("created_at", { ascending: false }),
+          .order("created_at", {
+            ascending: false,
+          }),
       ]);
 
-      if (classesResult.error) {
-        throw classesResult.error;
+      if (classError) {
+        throw classError;
       }
 
-      if (sessionsResult.error) {
-        throw sessionsResult.error;
+      if (sessionError) {
+        throw sessionError;
       }
 
-      setClasses(classesResult.data || []);
-      setSessions(sessionsResult.data || []);
-    } catch (err) {
-      console.error("Monitoring data error:", err);
-      setError(err.message || "Failed to load monitoring data.");
+      setClasses(classData || []);
+      setSessions(sessionData || []);
+      setLastUpdated(new Date());
+    } catch (error) {
+      console.error("ARMS monitoring load error:", error);
+
+      setErrorMessage(
+        error.message || "Failed to load monitoring sessions."
+      );
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -74,14 +169,16 @@ export default function Monitoring() {
   useEffect(() => {
     loadMonitoringData();
 
-    // Refresh automatically every 30 seconds
-    const interval = setInterval(() => {
-      loadMonitoringData(true);
-    }, 30000);
+    /*
+      Listen for changes in monitoring_sessions.
 
-    // Listen for changes in monitoring_sessions
-    const channel = supabase
-      .channel("monitoring-sessions-live")
+      This allows the page to update automatically when:
+      scheduled -> active
+      active -> ended
+      new session is created
+    */
+    const monitoringChannel = supabase
+      .channel("arms-monitoring-sessions-realtime")
       .on(
         "postgres_changes",
         {
@@ -89,350 +186,442 @@ export default function Monitoring() {
           schema: "public",
           table: "monitoring_sessions",
         },
-        () => {
+        (payload) => {
+          console.log(
+            "ARMS Realtime monitoring_sessions event:",
+            payload
+          );
+
           loadMonitoringData(true);
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log(
+          "ARMS monitoring Realtime subscription:",
+          status
+        );
+      });
+
+    /*
+      Listen for class schedule changes.
+    */
+    const classesChannel = supabase
+      .channel("arms-classes-realtime")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "classes",
+        },
+        (payload) => {
+          console.log("ARMS Realtime classes event:", payload);
+
+          loadMonitoringData(true);
+        }
+      )
+      .subscribe((status) => {
+        console.log(
+          "ARMS classes Realtime subscription:",
+          status
+        );
+      });
+
+    /*
+      Fallback refresh every 60 seconds.
+
+      This helps keep the displayed schedule accurate even if
+      a Realtime event is missed.
+    */
+    const fallbackInterval = setInterval(() => {
+      loadMonitoringData(true);
+    }, 60000);
 
     return () => {
-      clearInterval(interval);
-      supabase.removeChannel(channel);
+      supabase.removeChannel(monitoringChannel);
+      supabase.removeChannel(classesChannel);
+      clearInterval(fallbackInterval);
     };
   }, [loadMonitoringData]);
 
   const latestSessionByClass = useMemo(() => {
-    const sessionMap = {};
+    const sessionMap = new Map();
 
-    sessions.forEach((session) => {
-      if (!sessionMap[session.class_id]) {
-        sessionMap[session.class_id] = session;
+    for (const session of sessions) {
+      if (!sessionMap.has(session.class_id)) {
+        sessionMap.set(session.class_id, session);
       }
-    });
+    }
 
     return sessionMap;
   }, [sessions]);
 
-  const getStatusStyles = (status) => {
-    switch (status) {
-      case "active":
-        return {
-          label: "Active",
-          className:
-            "border-green-500/40 bg-green-500/10 text-green-400",
-          dotClass: "bg-green-400",
-        };
+  const monitoringClasses = useMemo(() => {
+    return classes.map((classItem) => {
+      const session = latestSessionByClass.get(classItem.id);
 
-      case "ended":
-        return {
-          label: "Ended",
-          className: "border-gray-500/40 bg-gray-500/10 text-gray-400",
-          dotClass: "bg-gray-400",
-        };
-
-      case "cancelled":
-        return {
-          label: "Cancelled",
-          className: "border-red-500/40 bg-red-500/10 text-red-400",
-          dotClass: "bg-red-400",
-        };
-
-      case "scheduled":
-      default:
-        return {
-          label: "Scheduled",
-          className:
-            "border-yellow-500/40 bg-yellow-500/10 text-yellow-400",
-          dotClass: "bg-yellow-400",
-        };
-    }
-  };
-
-  const formatTime = (time) => {
-    if (!time) return "Not set";
-
-    const [hours, minutes] = time.split(":");
-    const date = new Date();
-
-    date.setHours(Number(hours), Number(minutes), 0, 0);
-
-    return date.toLocaleTimeString([], {
-      hour: "numeric",
-      minute: "2-digit",
+      return {
+        ...classItem,
+        session,
+        currentStatus: getCurrentScheduleStatus(
+          classItem,
+          session
+        ),
+      };
     });
-  };
+  }, [classes, latestSessionByClass]);
 
-  const formatDateTime = (dateTime) => {
-    if (!dateTime) return "Not available";
-
-    return new Date(dateTime).toLocaleString([], {
-      dateStyle: "medium",
-      timeStyle: "short",
-    });
-  };
-
-  const formatDays = (days) => {
-    if (!days || !Array.isArray(days) || days.length === 0) {
-      return "No schedule days";
-    }
-
-    return days.join(" • ");
-  };
-
-  const getSessionStatus = (classItem) => {
-    const session = latestSessionByClass[classItem.id];
-
-    if (session?.status) {
-      return session.status;
-    }
-
-    return "scheduled";
-  };
-
-  const activeCount = classes.filter(
-    (classItem) => getSessionStatus(classItem) === "active"
+  const scheduledCount = monitoringClasses.filter(
+    (item) => item.currentStatus === "scheduled"
   ).length;
 
-  const scheduledCount = classes.filter(
-    (classItem) => getSessionStatus(classItem) === "scheduled"
+  const activeCount = monitoringClasses.filter(
+    (item) => item.currentStatus === "active"
   ).length;
 
-  const endedCount = classes.filter(
-    (classItem) => getSessionStatus(classItem) === "ended"
+  const endedCount = monitoringClasses.filter(
+    (item) => item.currentStatus === "ended"
+  ).length;
+
+  const cancelledCount = monitoringClasses.filter(
+    (item) => item.currentStatus === "cancelled"
   ).length;
 
   return (
-    <div className="min-h-full">
+    <div className="space-y-8">
       <PageHeader
         title="Monitoring"
-        description="Automatically monitor classroom sessions based on each subject's schedule."
+        description="Monitor classroom sessions automatically according to each subject's schedule."
       />
 
-      <div className="mt-8 space-y-6">
-        {/* Summary Cards */}
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-          <div className="rounded-2xl border border-white/10 bg-[#171717] p-5">
-            <p className="text-sm text-gray-400">Scheduled</p>
-            <p className="mt-2 text-3xl font-semibold text-yellow-400">
-              {scheduledCount}
-            </p>
-            <p className="mt-1 text-xs text-gray-500">
-              Classes waiting for their schedule
-            </p>
-          </div>
+      {/* Error Message */}
+      {errorMessage && (
+        <div className="rounded-xl border border-red-900 bg-red-950/40 px-4 py-3 text-sm text-red-300">
+          <strong>Monitoring error:</strong> {errorMessage}
+        </div>
+      )}
 
-          <div className="rounded-2xl border border-white/10 bg-[#171717] p-5">
-            <p className="text-sm text-gray-400">Active</p>
-            <p className="mt-2 text-3xl font-semibold text-green-400">
-              {activeCount}
-            </p>
-            <p className="mt-1 text-xs text-gray-500">
-              Classes currently being monitored
-            </p>
-          </div>
+      {/* Summary Cards */}
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <SummaryCard
+          title="Scheduled"
+          value={scheduledCount}
+          description="Classes waiting for their schedule"
+          icon={<Clock3 size={20} />}
+          iconClass="text-yellow-400"
+        />
 
-          <div className="rounded-2xl border border-white/10 bg-[#171717] p-5">
-            <p className="text-sm text-gray-400">Ended</p>
-            <p className="mt-2 text-3xl font-semibold text-gray-400">
-              {endedCount}
+        <SummaryCard
+          title="Active"
+          value={activeCount}
+          description="Classes currently being monitored"
+          icon={<Radio size={20} />}
+          iconClass="text-emerald-400"
+        />
+
+        <SummaryCard
+          title="Ended"
+          value={endedCount}
+          description="Completed monitoring sessions"
+          icon={<CheckCircle2 size={20} />}
+          iconClass="text-slate-400"
+        />
+
+        <SummaryCard
+          title="Cancelled"
+          value={cancelledCount}
+          description="Cancelled monitoring sessions"
+          icon={<XCircle size={20} />}
+          iconClass="text-red-400"
+        />
+      </section>
+
+      {/* Page Toolbar */}
+      <section className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="text-xl font-semibold">
+            Classroom Monitoring Sessions
+          </h2>
+
+          <p className="mt-1 text-sm text-neutral-500">
+            Session status updates automatically through Supabase Realtime.
+          </p>
+
+          {lastUpdated && (
+            <p className="mt-1 text-xs text-neutral-600">
+              Last updated: {lastUpdated.toLocaleTimeString()}
             </p>
-            <p className="mt-1 text-xs text-gray-500">
-              Completed monitoring sessions
-            </p>
-          </div>
+          )}
         </div>
 
-        {/* Page Controls */}
-        <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
-          <div>
-            <h2 className="text-xl font-semibold text-white">
-              Classroom Monitoring Sessions
-            </h2>
-            <p className="mt-1 text-sm text-gray-500">
-              Session status is updated automatically according to each
-              subject's schedule.
-            </p>
-          </div>
+        <button
+          type="button"
+          onClick={() => loadMonitoringData(true)}
+          disabled={refreshing}
+          className="inline-flex items-center justify-center gap-2 rounded-xl border border-neutral-700 bg-neutral-900 px-4 py-3 text-sm font-semibold transition hover:border-neutral-500 hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          <RefreshCw
+            size={16}
+            className={refreshing ? "animate-spin" : ""}
+          />
 
-          <button
-            type="button"
-            onClick={() => loadMonitoringData(true)}
-            disabled={refreshing}
-            className="rounded-xl border border-white/20 bg-white px-4 py-2 text-sm font-medium text-black transition hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {refreshing ? "Refreshing..." : "↻ Refresh"}
-          </button>
-        </div>
+          {refreshing ? "Refreshing..." : "Refresh"}
+        </button>
+      </section>
 
-        {/* Error Message */}
-        {error && (
-          <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-400">
-            {error}
-          </div>
-        )}
+      {/* Loading State */}
+      {loading && (
+        <div className="rounded-2xl border border-neutral-800 bg-neutral-900 px-6 py-16 text-center">
+          <RefreshCw
+            size={30}
+            className="mx-auto animate-spin text-neutral-500"
+          />
 
-        {/* Loading State */}
-        {loading ? (
-          <div className="rounded-2xl border border-white/10 bg-[#171717] p-10 text-center text-gray-400">
+          <p className="mt-4 text-sm text-neutral-400">
             Loading monitoring sessions...
-          </div>
-        ) : classes.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-white/10 bg-[#171717] p-10 text-center">
-            <p className="text-lg font-medium text-white">
-              No active classes found
-            </p>
-            <p className="mt-2 text-sm text-gray-500">
-              Create an active class with a valid subject schedule first.
-            </p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
-            {classes.map((classItem) => {
-              const session = latestSessionByClass[classItem.id];
-              const status = getSessionStatus(classItem);
-              const statusStyles = getStatusStyles(status);
+          </p>
+        </div>
+      )}
 
-              return (
-                <div
-                  key={classItem.id}
-                  className="rounded-2xl border border-white/10 bg-[#171717] p-6 transition hover:border-white/20"
-                >
-                  {/* Card Header */}
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <p className="text-xs uppercase tracking-wider text-gray-500">
-                        {classItem.subject || "Subject"}
-                      </p>
+      {/* Empty State */}
+      {!loading && monitoringClasses.length === 0 && (
+        <div className="rounded-2xl border border-dashed border-neutral-800 bg-neutral-900 px-6 py-16 text-center">
+          <School
+            size={35}
+            className="mx-auto text-neutral-600"
+          />
 
-                      <h3 className="mt-1 text-xl font-semibold text-white">
-                        {classItem.class_name}
-                      </h3>
+          <h3 className="mt-4 font-semibold">
+            No active classes found
+          </h3>
 
-                      <p className="mt-1 text-sm text-gray-400">
-                        Grade {classItem.grade_level} •{" "}
-                        {classItem.strand || "No strand"}{" "}
-                        {classItem.section
-                          ? `• ${classItem.section}`
-                          : ""}
-                      </p>
-                    </div>
+          <p className="mt-2 text-sm text-neutral-500">
+            Create an active class with a valid schedule to display it here.
+          </p>
+        </div>
+      )}
 
-                    {/* Status Badge */}
-                    <div
-                      className={`flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium ${statusStyles.className}`}
-                    >
-                      <span
-                        className={`h-2 w-2 rounded-full ${statusStyles.dotClass}`}
-                      />
-                      {statusStyles.label}
-                    </div>
-                  </div>
+      {/* Monitoring Cards */}
+      {!loading && monitoringClasses.length > 0 && (
+        <section className="grid gap-5 xl:grid-cols-2">
+          {monitoringClasses.map((classItem) => {
+            const statusStyles = getStatusStyles(
+              classItem.currentStatus
+            );
 
-                  {/* Schedule Information */}
-                  <div className="mt-6 space-y-4">
-                    <div className="flex items-start gap-3">
-                      <span className="mt-0.5 text-gray-500">◷</span>
-                      <div>
-                        <p className="text-xs text-gray-500">
-                          Class Schedule
-                        </p>
-                        <p className="mt-1 text-sm text-gray-200">
-                          {formatTime(classItem.schedule_start)} -{" "}
-                          {formatTime(classItem.schedule_end)}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-start gap-3">
-                      <span className="mt-0.5 text-gray-500">▦</span>
-                      <div>
-                        <p className="text-xs text-gray-500">
-                          Scheduled Days
-                        </p>
-                        <p className="mt-1 text-sm text-gray-200">
-                          {formatDays(classItem.schedule_days)}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-start gap-3">
-                      <span className="mt-0.5 text-gray-500">⌖</span>
-                      <div>
-                        <p className="text-xs text-gray-500">Room</p>
-                        <p className="mt-1 text-sm text-gray-200">
-                          {classItem.room || "No room assigned"}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Session Information */}
-                  <div className="mt-6 border-t border-white/10 pt-4">
-                    <p className="mb-3 text-xs font-medium uppercase tracking-wider text-gray-500">
-                      Monitoring Session
+            return (
+              <article
+                key={classItem.id}
+                className="rounded-2xl border border-neutral-800 bg-neutral-900 p-6 transition hover:border-neutral-700"
+              >
+                {/* Card Header */}
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">
+                      {classItem.subject || classItem.class_name}
                     </p>
 
-                    {session ? (
-                      <div className="space-y-2 text-sm">
-                        <div className="flex justify-between gap-4">
-                          <span className="text-gray-500">Session ID</span>
-                          <span className="max-w-[220px] truncate text-gray-300">
-                            {session.id}
+                    <h3 className="mt-2 text-xl font-semibold">
+                      {classItem.class_name}
+                    </h3>
+
+                    <p className="mt-1 text-sm text-neutral-400">
+                      Grade {classItem.grade_level} •{" "}
+                      {classItem.strand}
+                      {classItem.section
+                        ? ` • ${classItem.section}`
+                        : ""}
+                    </p>
+                  </div>
+
+                  <span
+                    className={`inline-flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold ${statusStyles.badge}`}
+                  >
+                    <span
+                      className={`h-2 w-2 rounded-full ${statusStyles.dot}`}
+                    />
+
+                    {statusStyles.label}
+                  </span>
+                </div>
+
+                {/* Class Information */}
+                <div className="mt-6 grid gap-4 sm:grid-cols-2">
+                  <InfoItem
+                    icon={<Clock3 size={16} />}
+                    label="Class Schedule"
+                    value={`${formatTime(
+                      classItem.schedule_start
+                    )} - ${formatTime(classItem.schedule_end)}`}
+                  />
+
+                  <InfoItem
+                    icon={<CalendarDays size={16} />}
+                    label="Scheduled Days"
+                    value={
+                      classItem.schedule_days?.length
+                        ? classItem.schedule_days.join(" • ")
+                        : "No days configured"
+                    }
+                  />
+
+                  <InfoItem
+                    icon={<School size={16} />}
+                    label="Room"
+                    value={classItem.room || "No room assigned"}
+                  />
+
+                  <InfoItem
+                    icon={<Timer size={16} />}
+                    label="Session Status"
+                    value={statusStyles.label}
+                  />
+                </div>
+
+                {/* Monitoring Session Details */}
+                <div className="mt-6 border-t border-neutral-800 pt-5">
+                  <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">
+                    Monitoring Session
+                  </p>
+
+                  {classItem.session ? (
+                    <div className="mt-4 rounded-xl border border-neutral-800 bg-neutral-950/60 p-4">
+                      <div className="flex items-center gap-2">
+                        {statusStyles.icon}
+
+                        <span className="text-sm font-semibold">
+                          {statusStyles.label}
+                        </span>
+                      </div>
+
+                      <div className="mt-3 space-y-2 text-sm">
+                        <div className="flex flex-wrap justify-between gap-2">
+                          <span className="text-neutral-500">
+                            Start time
+                          </span>
+
+                          <span className="text-neutral-300">
+                            {formatDateTime(
+                              classItem.session.start_time
+                            )}
                           </span>
                         </div>
 
-                        <div className="flex justify-between gap-4">
-                          <span className="text-gray-500">Started</span>
-                          <span className="text-right text-gray-300">
-                            {formatDateTime(session.start_time)}
+                        <div className="flex flex-wrap justify-between gap-2">
+                          <span className="text-neutral-500">
+                            End time
+                          </span>
+
+                          <span className="text-neutral-300">
+                            {classItem.session.end_time
+                              ? formatDateTime(
+                                  classItem.session.end_time
+                                )
+                              : "Not ended"}
                           </span>
                         </div>
 
-                        <div className="flex justify-between gap-4">
-                          <span className="text-gray-500">Ended</span>
-                          <span className="text-right text-gray-300">
-                            {formatDateTime(session.end_time)}
+                        <div className="flex flex-wrap justify-between gap-2">
+                          <span className="text-neutral-500">
+                            Session ID
+                          </span>
+
+                          <span className="max-w-full break-all font-mono text-xs text-neutral-600">
+                            {classItem.session.id}
                           </span>
                         </div>
                       </div>
-                    ) : (
-                      <p className="text-sm text-gray-500">
-                        No monitoring session record has been created yet.
-                      </p>
-                    )}
-                  </div>
+                    </div>
+                  ) : (
+                    <div className="mt-4 rounded-xl border border-dashed border-neutral-800 bg-neutral-950/40 p-4">
+                      <div className="flex items-center gap-2 text-yellow-400">
+                        <Clock3 size={16} />
 
-                  {/* Bottom Status Message */}
-                  <div className="mt-5 rounded-xl border border-white/5 bg-black/20 px-4 py-3">
-                    {status === "active" ? (
-                      <p className="text-sm text-green-400">
-                        ● Automatic monitoring is currently active for this
-                        subject.
+                        <span className="text-sm font-medium">
+                          No monitoring session record yet
+                        </span>
+                      </div>
+
+                      <p className="mt-2 text-sm text-neutral-500">
+                        A scheduled session will be created automatically
+                        according to the subject's class schedule.
                       </p>
-                    ) : status === "ended" ? (
-                      <p className="text-sm text-gray-400">
-                        ● This subject's monitoring session has ended.
-                      </p>
-                    ) : status === "cancelled" ? (
-                      <p className="text-sm text-red-400">
-                        ● This monitoring session was cancelled.
-                      </p>
-                    ) : (
-                      <p className="text-sm text-yellow-400">
-                        ● Monitoring will automatically activate during the
-                        scheduled class hours.
-                      </p>
-                    )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Status Notice */}
+                <div className="mt-5 rounded-xl border border-neutral-800 bg-neutral-950/60 px-4 py-3">
+                  <div className="flex items-start gap-2">
+                    <Activity
+                      size={16}
+                      className="mt-0.5 shrink-0 text-neutral-500"
+                    />
+
+                    <p className="text-xs leading-relaxed text-neutral-500">
+                      {classItem.currentStatus === "active"
+                        ? "This class is currently within its scheduled monitoring period."
+                        : classItem.currentStatus === "ended"
+                        ? "This monitoring session has already completed."
+                        : classItem.currentStatus === "cancelled"
+                        ? "This monitoring session was cancelled."
+                        : "Monitoring will automatically activate during the scheduled class hours."}
+                    </p>
                   </div>
                 </div>
-              );
-            })}
-          </div>
-        )}
+              </article>
+            );
+          })}
+        </section>
+      )}
+    </div>
+  );
+}
 
-        {/* Automatic Refresh Notice */}
-        <p className="text-center text-xs text-gray-600">
-          Monitoring data refreshes automatically every 30 seconds.
+function SummaryCard({
+  title,
+  value,
+  description,
+  icon,
+  iconClass,
+}) {
+  return (
+    <div className="rounded-2xl border border-neutral-800 bg-neutral-900 p-5">
+      <div
+        className={`flex h-11 w-11 items-center justify-center rounded-xl bg-neutral-800 ${iconClass}`}
+      >
+        {icon}
+      </div>
+
+      <p className="mt-5 text-sm text-neutral-500">
+        {title}
+      </p>
+
+      <p className="mt-1 text-3xl font-bold">
+        {value}
+      </p>
+
+      <p className="mt-1 text-xs text-neutral-500">
+        {description}
+      </p>
+    </div>
+  );
+}
+
+function InfoItem({ icon, label, value }) {
+  return (
+    <div className="flex items-start gap-3">
+      <div className="mt-0.5 text-neutral-500">
+        {icon}
+      </div>
+
+      <div className="min-w-0">
+        <p className="text-xs text-neutral-500">
+          {label}
+        </p>
+
+        <p className="mt-1 break-words text-sm text-neutral-300">
+          {value}
         </p>
       </div>
     </div>
