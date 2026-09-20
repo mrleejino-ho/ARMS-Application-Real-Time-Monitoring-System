@@ -701,6 +701,8 @@ function CreateClassModal({
     "Wednesday",
     "Thursday",
     "Friday",
+    "Saturday",
+    "Sunday",
   ];
 
   /* ----------------------------------------------------------
