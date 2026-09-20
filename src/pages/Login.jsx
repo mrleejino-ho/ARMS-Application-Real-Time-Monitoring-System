@@ -39,7 +39,15 @@ export default function Login() {
   return (
     <div className="arms-login min-h-screen px-4 py-8 text-[#173B57] sm:px-8">
       <AnimatedArmsBackground />
-      <div className="relative z-10 mx-auto flex min-h-[calc(100vh-4rem)] w-full max-w-6xl items-center justify-center lg:justify-end">
+      <div className="relative z-10 mx-auto flex min-h-[calc(100vh-4rem)] w-full max-w-6xl flex-col items-center justify-center gap-8 lg:flex-row lg:justify-center lg:gap-16">
+        <div className="arms-login-logo-panel" aria-hidden="true">
+          <img
+            src="/assets/arms-logo.png"
+            alt=""
+            className="arms-login-logo"
+          />
+        </div>
+
         <div className="w-full max-w-md rounded-[28px] border border-white/80 bg-white/95 p-8 shadow-[0_24px_80px_rgba(18,59,93,0.14)] backdrop-blur sm:p-10">
           <div className="mb-8">
             

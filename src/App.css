@@ -1078,3 +1078,32 @@ tbody tr:hover {
   height: auto;
   object-fit: contain;
 }
+
+.arms-login-logo-panel {
+  display: flex;
+  width: min(42vw, 30rem);
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  user-select: none;
+}
+
+.arms-login-logo {
+  display: block;
+  width: min(100%, 28rem);
+  height: auto;
+  object-fit: contain;
+  opacity: 0.96;
+  filter: drop-shadow(0 20px 28px rgba(38, 55, 70, 0.12));
+  pointer-events: none;
+}
+
+@media (max-width: 1023px) {
+  .arms-login-logo-panel {
+    width: min(72vw, 22rem);
+  }
+
+  .arms-login-logo {
+    max-height: 15rem;
+  }
+}
