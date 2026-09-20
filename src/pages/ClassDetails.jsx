@@ -523,10 +523,67 @@ function StudentHistoryModal({
         throw usageError;
       }
 
+      const packageNames = [
+        ...new Set(
+          (usageData || [])
+            .map((record) => record.package_name)
+            .filter(Boolean)
+        ),
+      ];
+
+      const { data: applicationData, error: applicationError } =
+        packageNames.length > 0
+          ? await supabase
+              .from("applications")
+              .select("app_name, package_name")
+              .or(
+                packageNames
+                  .map(
+                    (packageName) =>
+                      `package_name.eq.${packageName},package_name.ilike.${packageName.split(".").slice(0, 2).join(".")}.%`
+                  )
+                  .join(",")
+              )
+          : { data: [], error: null };
+
+      if (applicationError) {
+        throw applicationError;
+      }
+
+      const applicationNames = new Map(
+        (applicationData || []).map((application) => [
+          application.package_name,
+          application.app_name,
+        ])
+      );
+
+      function getApplicationName(packageName) {
+        const exactName = applicationNames.get(packageName);
+
+        if (exactName) {
+          return exactName;
+        }
+
+        const packageFamily = packageName
+          ?.split(".")
+          .slice(0, 2)
+          .join(".");
+
+        const familyMatch = (applicationData || []).find(
+          (application) =>
+            application.package_name
+              ?.split(".")
+              .slice(0, 2)
+              .join(".") === packageFamily
+        );
+
+        return familyMatch?.app_name || packageName;
+      }
+
       setUsageRecords(
         (usageData || []).map((record) => ({
           ...record,
-          app_name: record.package_name,
+          app_name: getApplicationName(record.package_name),
           started_at: record.last_seen_at,
           duration_seconds: record.total_seconds,
           was_violated: false,
@@ -847,11 +904,6 @@ function StudentHistoryModal({
                                   <p className="font-medium text-white">
                                     {record.app_name ||
                                       "Unknown Application"}
-                                  </p>
-
-                                  <p className="mt-1 text-xs text-neutral-600">
-                                    {record.package_name ||
-                                      "No package name"}
                                   </p>
 
                                   {record.category && (
