@@ -1,5 +1,8 @@
 import { useState } from "react";
+import { Eye, EyeOff, LockKeyhole, Mail } from "lucide-react";
 import { supabase } from "../services/supabase";
+import AnimatedArmsBackground from "../components/AnimatedArmsBackground";
+import BrandMark from "../components/BrandMark";
 
 export default function Login() {
   const [email, setEmail] = useState("");
@@ -7,6 +10,7 @@ export default function Login() {
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
 
   async function handleLogin(e) {
     e.preventDefault();
@@ -33,26 +37,25 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen bg-neutral-950 text-white flex items-center justify-center px-4">
-      <div className="w-full max-w-md">
-        <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-8 shadow-2xl">
+    <div className="arms-login min-h-screen px-4 py-8 text-[#173B57] sm:px-8">
+      <AnimatedArmsBackground />
+      <div className="relative z-10 mx-auto flex min-h-[calc(100vh-4rem)] w-full max-w-6xl items-center justify-center lg:justify-end">
+        <div className="w-full max-w-md rounded-[28px] border border-white/80 bg-white/95 p-8 shadow-[0_24px_80px_rgba(18,59,93,0.14)] backdrop-blur sm:p-10">
           <div className="mb-8">
-            <h1 className="text-3xl font-bold tracking-tight">
-              ARMS
+            
+
+            <h1 className="mt-8 text-lg font-semibold text-[#123B5D]">
+              Application Real-Time Monitoring System
             </h1>
 
-            <p className="mt-2 text-neutral-400">
-              Application Real-Time Monitoring System
-            </p>
-
-            <p className="mt-1 text-sm text-neutral-500">
-              Santiago National High School
+            <p className="mt-1 text-sm text-slate-500">
+              Teacher Console · Santiago National High School
             </p>
           </div>
 
           <form onSubmit={handleLogin} className="space-y-5">
             <div>
-              <label className="block text-sm mb-2 text-neutral-300">
+              <label className="mb-2 block text-sm font-medium text-[#173B57]">
                 Email
               </label>
 
@@ -60,29 +63,34 @@ export default function Login() {
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="Enter your email"
+                placeholder="                 Enter your email"
                 required
-                className="w-full rounded-xl border border-neutral-700 bg-neutral-950 px-4 py-3 outline-none transition focus:border-white"
+                className="input pl-11"
               />
+              <Mail className="pointer-events-none relative -top-8 left-80 -mb-5 text-slate-400" size={17} />
             </div>
 
             <div>
-              <label className="block text-sm mb-2 text-neutral-300">
+              <label className="mb-2 block text-sm font-medium text-[#173B57]">
                 Password
               </label>
 
               <input
-                type="password"
+                type={showPassword ? "text" : "password"}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="Enter your password"
+                placeholder="                 Enter your password"
                 required
-                className="w-full rounded-xl border border-neutral-700 bg-neutral-950 px-4 py-3 outline-none transition focus:border-white"
+                className="input pl-11 pr-11"
               />
+              <LockKeyhole className="pointer-events-none relative -top-8 left-80 -mb-5 text-slate-400" size={17} />
+              <button type="button" onClick={() => setShowPassword((value) => !value)} className="relative float-right -top-8 right-3 text-slate-400 hover:text-[#1976D2]" aria-label={showPassword ? "Hide password" : "Show password"}>
+                {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
+              </button>
             </div>
 
             {error && (
-              <div className="rounded-xl border border-red-800 bg-red-950/40 px-4 py-3 text-sm text-red-300">
+              <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
                 {error}
               </div>
             )}
@@ -90,7 +98,7 @@ export default function Login() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full rounded-xl bg-white px-4 py-3 font-semibold text-black transition hover:bg-neutral-200 disabled:cursor-not-allowed disabled:opacity-50"
+              className="arms-button arms-button-primary w-full rounded-xl px-4 py-3 font-semibold transition disabled:cursor-not-allowed disabled:opacity-50"
             >
               {loading ? "Signing in..." : "Sign In"}
             </button>

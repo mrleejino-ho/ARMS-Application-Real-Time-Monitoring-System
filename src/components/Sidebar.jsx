@@ -9,9 +9,9 @@ import {
   Settings,
   LogOut,
   X,
-  MonitorCheck,
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
+import BrandMark from "./BrandMark";
 
 const navigation = [
   {
@@ -78,6 +78,7 @@ export default function Sidebar({
         className={`
           fixed left-0 top-0 z-50 flex h-screen flex-col
           border-r border-neutral-800 bg-neutral-950
+                    border-r border-slate-200 bg-white
           transition-all duration-300 ease-in-out
           
           ${collapsed ? "lg:w-[76px]" : "lg:w-[250px]"}
@@ -90,11 +91,9 @@ export default function Sidebar({
         `}
       >
         {/* Brand */}
-        <div className="flex h-[72px] items-center border-b border-neutral-800 px-5">
+        <div className="flex h-[72px] items-center border-b border-slate-100 px-5">
           <div className="flex min-w-0 flex-1 items-center gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-black">
-              <MonitorCheck size={21} strokeWidth={2.4} />
-            </div>
+            <BrandMark compact={collapsed} />
 
             <div
               className={`
@@ -104,11 +103,11 @@ export default function Sidebar({
               `}
             >
               <p className="text-sm font-bold tracking-wide">
-                ARMS
+                
               </p>
 
               <p className="text-[11px] text-neutral-500">
-                Teacher Console
+                
               </p>
             </div>
           </div>
@@ -117,7 +116,7 @@ export default function Sidebar({
           <button
             type="button"
             onClick={() => setMobileOpen(false)}
-            className="rounded-lg p-2 text-neutral-400 hover:bg-neutral-800 hover:text-white lg:hidden"
+            className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700 lg:hidden"
             aria-label="Close sidebar"
           >
             <X size={20} />
@@ -142,8 +141,8 @@ export default function Sidebar({
 
                     ${
                       isActive
-                        ? "bg-white text-black shadow-lg"
-                        : "text-neutral-400 hover:bg-neutral-900 hover:text-white"
+                        ? "bg-blue-50 text-[#1976D2] shadow-sm"
+                        : "text-slate-500 hover:bg-blue-50 hover:text-[#1976D2]"
                     }
 
                     ${collapsed ? "lg:justify-center" : ""}
@@ -176,14 +175,14 @@ export default function Sidebar({
         </nav>
 
         {/* Footer */}
-        <div className="border-t border-neutral-800 p-3">
+        <div className="border-t border-slate-100 p-3">
           <button
             type="button"
             onClick={onLogout}
             className={`
               flex w-full items-center gap-3 rounded-xl px-3 py-3
-              text-sm font-medium text-neutral-400
-              transition hover:bg-red-950/40 hover:text-red-300
+              text-sm font-medium text-slate-500
+              transition hover:bg-red-50 hover:text-red-600
               ${collapsed ? "lg:justify-center" : ""}
             `}
           >

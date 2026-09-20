@@ -14,7 +14,9 @@ import {
   Plus,
   RefreshCw,
   Search,
+  ShieldCheck,
   ShieldAlert,
+  ShieldOff,
   Smartphone,
   Trash2,
   X,
@@ -109,6 +111,41 @@ function formatDate(date) {
   });
 }
 
+function PermissionControl({ application, saving, onChange }) {
+  const restricted = Boolean(application.is_restricted);
+  const StatusIcon = restricted ? ShieldOff : ShieldCheck;
+
+  return (
+    <button
+      type="button"
+      onClick={onChange}
+      disabled={saving}
+      aria-pressed={restricted}
+      aria-label={`${application.app_name}: ${restricted ? "restricted during class" : "allowed during class"}. Change permission`}
+      className={`inline-flex min-w-[190px] items-center justify-between gap-3 rounded-xl border px-3 py-2 text-left transition disabled:cursor-not-allowed disabled:opacity-60 ${
+        restricted
+          ? "border-red-200 bg-red-50 text-red-800 hover:bg-red-100"
+          : "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
+      }`}
+    >
+      <span className="flex items-center gap-2">
+        {saving ? <Loader2 size={16} className="animate-spin" /> : <StatusIcon size={16} />}
+        <span>
+          <span className="block text-xs font-semibold">
+            {restricted ? "Restricted During Class" : "Allowed During Class"}
+          </span>
+          <span className="block text-[11px] opacity-75">
+            {restricted ? "Active students affected" : "No class restriction"}
+          </span>
+        </span>
+      </span>
+      <span className={`relative h-5 w-9 rounded-full ${restricted ? "bg-red-500" : "bg-emerald-500"}`}>
+        <span className={`absolute top-1 h-3 w-3 rounded-full bg-white transition ${restricted ? "left-5" : "left-1"}`} />
+      </span>
+    </button>
+  );
+}
+
 export default function Applications() {
   const [applications, setApplications] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -125,6 +162,8 @@ export default function Applications() {
   const [form, setForm] = useState(EMPTY_FORM);
 
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [restrictionTarget, setRestrictionTarget] = useState(null);
+  const [restrictionSavingId, setRestrictionSavingId] = useState(null);
 
   useEffect(() => {
     fetchApplications();
@@ -301,6 +340,54 @@ export default function Applications() {
       );
     } finally {
       setSaving(false);
+    }
+  }
+
+  function requestRestrictionChange(application) {
+    setRestrictionTarget({
+      application,
+      restricted: !Boolean(application.is_restricted),
+    });
+    setError("");
+    setSuccess("");
+  }
+
+  async function confirmRestrictionChange() {
+    if (!restrictionTarget) return;
+
+    const { application, restricted } = restrictionTarget;
+
+    try {
+      setRestrictionSavingId(application.id);
+      setError("");
+
+      const { data, error: functionError } = await supabase.functions.invoke(
+        "toggle-application-restriction",
+        {
+          body: {
+            application_id: application.id,
+            restricted,
+          },
+        },
+      );
+
+      if (functionError) {
+        console.error("Application restriction function error:", functionError, data);
+        throw new Error(data?.error || functionError.message || "Unable to update application restriction.");
+      }
+
+      setApplications((previous) => previous.map((item) => (
+        item.id === application.id
+          ? { ...item, is_restricted: restricted }
+          : item
+      )));
+      setSuccess(restricted ? "Application restricted for active students." : "Application allowed during class.");
+      setRestrictionTarget(null);
+    } catch (restrictionError) {
+      console.error("Application restriction update failed:", restrictionError);
+      setError(restrictionError.message || "Unable to update application restriction.");
+    } finally {
+      setRestrictionSavingId(null);
     }
   }
 
@@ -597,6 +684,10 @@ export default function Applications() {
                       Created
                     </th>
 
+                    <th className="px-6 py-4 font-medium">
+                      Class Permission
+                    </th>
+
                     <th className="px-6 py-4 text-right font-medium">
                       Actions
                     </th>
@@ -651,6 +742,14 @@ export default function Applications() {
 
                         <td className="whitespace-nowrap px-6 py-5 text-sm text-neutral-400">
                           {formatDate(application.created_at)}
+                        </td>
+
+                        <td className="px-6 py-5">
+                          <PermissionControl
+                            application={application}
+                            saving={restrictionSavingId === application.id}
+                            onChange={() => requestRestrictionChange(application)}
+                          />
                         </td>
 
                         <td className="px-6 py-5">
@@ -727,6 +826,12 @@ export default function Applications() {
                         {formatDate(application.created_at)}
                       </span>
                     </div>
+
+                    <PermissionControl
+                      application={application}
+                      saving={restrictionSavingId === application.id}
+                      onChange={() => requestRestrictionChange(application)}
+                    />
 
                     <div className="flex gap-2">
                       <button
@@ -935,6 +1040,33 @@ export default function Applications() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* RESTRICTION CONFIRMATION MODAL */}
+      {restrictionTarget && (
+        <div className="fixed inset-0 z-[55] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md overflow-hidden rounded-2xl border border-neutral-700 bg-white shadow-2xl">
+            <div className="px-6 py-6">
+              <div className={`flex h-12 w-12 items-center justify-center rounded-xl ${restrictionTarget.restricted ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-700"}`}>
+                {restrictionTarget.restricted ? <ShieldOff size={23} /> : <ShieldCheck size={23} />}
+              </div>
+              <h2 className="mt-5 text-xl font-bold text-[#263746]">
+                {restrictionTarget.restricted ? "Restrict Application?" : "Allow Application?"}
+              </h2>
+              <p className="mt-3 text-sm leading-6 text-[#465B72]">
+                {restrictionTarget.restricted
+                  ? `Restrict ${restrictionTarget.application.app_name} for all active students during monitored class schedules?`
+                  : `Allow ${restrictionTarget.application.app_name} during monitored class schedules and deactivate its active student restrictions?`}
+              </p>
+            </div>
+            <div className="flex flex-col-reverse gap-3 border-t border-[#DCEAF5] bg-[#F1F1F1] px-6 py-5 sm:flex-row sm:justify-end">
+              <button type="button" onClick={() => setRestrictionTarget(null)} disabled={Boolean(restrictionSavingId)} className="arms-button rounded-xl px-5 py-3 text-sm font-semibold">Cancel</button>
+              <button type="button" onClick={confirmRestrictionChange} disabled={Boolean(restrictionSavingId)} className={`inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60 ${restrictionTarget.restricted ? "bg-[#D9534F] hover:bg-[#B33B38]" : "bg-[#16A085] hover:bg-[#167A63]"}`}>
+                {restrictionSavingId ? <><Loader2 size={17} className="animate-spin" /> Saving...</> : restrictionTarget.restricted ? "Restrict for Students" : "Allow During Class"}
+              </button>
+            </div>
           </div>
         </div>
       )}

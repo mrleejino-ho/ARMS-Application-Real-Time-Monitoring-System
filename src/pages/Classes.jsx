@@ -1,15 +1,18 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+
 import {
   Plus,
   Search,
   GraduationCap,
-  MoreVertical,
+  Trash2,
   Clock,
   MapPin,
   BookOpen,
-  Users,
   X,
+  ShieldCheck,
+  AlertTriangle,
+  Loader2,
 } from "lucide-react";
 
 import { supabase } from "../services/supabase";
@@ -24,6 +27,9 @@ export default function Classes() {
   const [search, setSearch] = useState("");
   const [showModal, setShowModal] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+
+  const [selectedClass, setSelectedClass] = useState(null);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
 
   async function loadClasses() {
     if (!user || !profile) {
@@ -94,6 +100,16 @@ export default function Classes() {
     }
   }
 
+  function openDeleteModal(classItem) {
+    setSelectedClass(classItem);
+    setShowDeleteModal(true);
+  }
+
+  function closeDeleteModal() {
+    setShowDeleteModal(false);
+    setSelectedClass(null);
+  }
+
   useEffect(() => {
     loadClasses();
   }, [user, profile]);
@@ -160,8 +176,8 @@ export default function Classes() {
           <input
             type="text"
             value={search}
-            onChange={(e) =>
-              setSearch(e.target.value)
+            onChange={(event) =>
+              setSearch(event.target.value)
             }
             placeholder="Search classes..."
             className="w-full rounded-xl border border-neutral-800 bg-neutral-900 py-3 pl-10 pr-4 text-sm text-white outline-none placeholder:text-neutral-600 focus:border-neutral-600"
@@ -191,9 +207,10 @@ export default function Classes() {
               key={classItem.id}
               classItem={classItem}
               onClick={() =>
-                navigate(
-                  `/classes/${classItem.id}`
-                )
+                navigate(`/classes/${classItem.id}`)
+              }
+              onDelete={() =>
+                openDeleteModal(classItem)
               }
             />
           ))}
@@ -205,11 +222,22 @@ export default function Classes() {
         <CreateClassModal
           user={user}
           profile={profile}
-          onClose={() =>
-            setShowModal(false)
-          }
+          onClose={() => setShowModal(false)}
           onCreated={async () => {
             setShowModal(false);
+            await loadClasses();
+          }}
+        />
+      )}
+
+      {/* Delete class modal */}
+      {showDeleteModal && selectedClass && (
+        <DeleteClassModal
+          user={user}
+          classItem={selectedClass}
+          onClose={closeDeleteModal}
+          onDeleted={async () => {
+            closeDeleteModal();
             await loadClasses();
           }}
         />
@@ -218,7 +246,6 @@ export default function Classes() {
   );
 }
 
-
 /* ============================================================
    CLASS CARD
    ============================================================ */
@@ -226,6 +253,7 @@ export default function Classes() {
 function ClassCard({
   classItem,
   onClick,
+  onDelete,
 }) {
   function handleKeyDown(event) {
     if (
@@ -235,13 +263,6 @@ function ClassCard({
       event.preventDefault();
       onClick();
     }
-  }
-
-  function handleMenuClick(event) {
-    event.stopPropagation();
-
-    // Reserved for future class actions:
-    // Edit / Archive / Delete
   }
 
   return (
@@ -259,11 +280,15 @@ function ClassCard({
 
         <button
           type="button"
-          onClick={handleMenuClick}
-          className="rounded-lg p-2 text-neutral-500 transition hover:bg-neutral-800 hover:text-white"
-          aria-label={`More actions for ${classItem.class_name}`}
+          onClick={(event) => {
+            event.stopPropagation();
+            onDelete();
+          }}
+          className="rounded-lg p-2 text-neutral-500 transition hover:bg-red-950/60 hover:text-red-400"
+          aria-label={`Delete ${classItem.class_name}`}
+          title="Delete class"
         >
-          <MoreVertical size={18} />
+          <Trash2 size={18} />
         </button>
       </div>
 
@@ -319,7 +344,6 @@ function ClassCard({
   );
 }
 
-
 /* ============================================================
    INFO ROW
    ============================================================ */
@@ -339,7 +363,6 @@ function InfoRow({
     </div>
   );
 }
-
 
 /* ============================================================
    EMPTY STATE
@@ -381,7 +404,6 @@ function EmptyState({
   );
 }
 
-
 /* ============================================================
    LOADING STATE
    ============================================================ */
@@ -398,7 +420,6 @@ function LoadingState() {
     </div>
   );
 }
-
 
 /* ============================================================
    CREATE CLASS MODAL
@@ -434,7 +455,7 @@ function CreateClassModal({
 
   useEffect(() => {
     async function loadTeachers() {
-      // Teacher doesn't need a dropdown.
+      // Teachers do not need a teacher dropdown.
       if (profile?.role !== "admin") {
         return;
       }
@@ -443,17 +464,14 @@ function CreateClassModal({
         setTeachersLoading(true);
         setError("");
 
-        const { data, error } =
-          await supabase
-            .from("profiles")
-            .select(
-              "id, full_name, email"
-            )
-            .eq("role", "teacher")
-            .eq("status", "active")
-            .order("full_name", {
-              ascending: true,
-            });
+        const { data, error } = await supabase
+          .from("profiles")
+          .select("id, full_name, email")
+          .eq("role", "teacher")
+          .eq("status", "active")
+          .order("full_name", {
+            ascending: true,
+          });
 
         if (error) {
           throw error;
@@ -461,8 +479,8 @@ function CreateClassModal({
 
         setTeachers(data || []);
 
-        // If exactly one teacher exists,
-        // automatically select that teacher.
+        // Automatically select the teacher
+        // if exactly one teacher exists.
         if (
           data?.length === 1 &&
           !form.teacher_id
@@ -490,15 +508,11 @@ function CreateClassModal({
     loadTeachers();
   }, [profile?.role]);
 
-
   /* ----------------------------------------------------------
      FORM HELPERS
      ---------------------------------------------------------- */
 
-  function updateField(
-    field,
-    value
-  ) {
+  function updateField(field, value) {
     setForm((current) => ({
       ...current,
       [field]: value,
@@ -508,9 +522,7 @@ function CreateClassModal({
   function toggleDay(day) {
     setForm((current) => {
       const exists =
-        current.schedule_days.includes(
-          day
-        );
+        current.schedule_days.includes(day);
 
       return {
         ...current,
@@ -525,7 +537,6 @@ function CreateClassModal({
       };
     });
   }
-
 
   /* ----------------------------------------------------------
      CREATE CLASS
@@ -544,22 +555,16 @@ function CreateClassModal({
     }
 
     if (!form.class_name.trim()) {
-      setError(
-        "Class name is required."
-      );
+      setError("Class name is required.");
       return;
     }
 
     if (!form.subject.trim()) {
-      setError(
-        "Subject is required."
-      );
+      setError("Subject is required.");
       return;
     }
 
-    if (
-      form.schedule_days.length === 0
-    ) {
+    if (form.schedule_days.length === 0) {
       setError(
         "Please select at least one schedule day."
       );
@@ -569,8 +574,7 @@ function CreateClassModal({
     if (
       form.schedule_start &&
       form.schedule_end &&
-      form.schedule_start >=
-        form.schedule_end
+      form.schedule_start >= form.schedule_end
     ) {
       setError(
         "End time must be later than start time."
@@ -639,8 +643,7 @@ function CreateClassModal({
           .insert({
             school_id: school.id,
 
-            teacher_id:
-              selectedTeacherId,
+            teacher_id: selectedTeacherId,
 
             class_name:
               form.class_name.trim(),
@@ -650,27 +653,22 @@ function CreateClassModal({
             strand: "STEM",
 
             section:
-              form.section.trim() ||
-              null,
+              form.section.trim() || null,
 
             subject:
               form.subject.trim(),
 
             room:
-              form.room.trim() ||
-              null,
+              form.room.trim() || null,
 
             schedule_start:
-              form.schedule_start ||
-              null,
+              form.schedule_start || null,
 
             schedule_end:
-              form.schedule_end ||
-              null,
+              form.schedule_end || null,
 
             schedule_days:
-              form.schedule_days.length >
-              0
+              form.schedule_days.length > 0
                 ? form.schedule_days
                 : null,
 
@@ -697,7 +695,6 @@ function CreateClassModal({
     }
   }
 
-
   const days = [
     "Monday",
     "Tuesday",
@@ -706,7 +703,6 @@ function CreateClassModal({
     "Friday",
   ];
 
-
   /* ----------------------------------------------------------
      MODAL UI
      ---------------------------------------------------------- */
@@ -714,7 +710,6 @@ function CreateClassModal({
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
       <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-neutral-800 bg-neutral-950 shadow-2xl">
-
         {/* Header */}
         <div className="flex items-center justify-between border-b border-neutral-800 px-6 py-5">
           <div>
@@ -737,7 +732,6 @@ function CreateClassModal({
           </button>
         </div>
 
-
         {/* Form */}
         <form
           onSubmit={handleSubmit}
@@ -749,7 +743,6 @@ function CreateClassModal({
               {error}
             </div>
           )}
-
 
           {/* Class Name */}
           <Field
@@ -770,7 +763,6 @@ function CreateClassModal({
             />
           </Field>
 
-
           {/* Class Teacher */}
           <Field
             label="Class Teacher"
@@ -785,9 +777,7 @@ function CreateClassModal({
                     event.target.value
                   )
                 }
-                disabled={
-                  teachersLoading
-                }
+                disabled={teachersLoading}
                 className="input"
               >
                 <option value="">
@@ -796,31 +786,25 @@ function CreateClassModal({
                     : "Select a teacher"}
                 </option>
 
-                {teachers.map(
-                  (teacher) => (
-                    <option
-                      key={teacher.id}
-                      value={teacher.id}
-                    >
-                      {teacher.full_name}{" "}
-                      — {teacher.email}
-                    </option>
-                  )
-                )}
+                {teachers.map((teacher) => (
+                  <option
+                    key={teacher.id}
+                    value={teacher.id}
+                  >
+                    {teacher.full_name} —{" "}
+                    {teacher.email}
+                  </option>
+                ))}
               </select>
             ) : (
               <input
                 type="text"
-                value={
-                  profile?.full_name ||
-                  ""
-                }
+                value={profile?.full_name || ""}
                 disabled
                 className="input cursor-not-allowed opacity-60"
               />
             )}
           </Field>
-
 
           {/* Grade + Strand */}
           <div className="grid gap-4 sm:grid-cols-2">
@@ -842,7 +826,6 @@ function CreateClassModal({
               />
             </Field>
           </div>
-
 
           {/* Section + Subject */}
           <div className="grid gap-4 sm:grid-cols-2">
@@ -880,7 +863,6 @@ function CreateClassModal({
             </Field>
           </div>
 
-
           {/* Room */}
           <Field label="Room">
             <input
@@ -897,7 +879,6 @@ function CreateClassModal({
             />
           </Field>
 
-
           {/* Schedule Days */}
           <Field
             label="Schedule Days"
@@ -906,17 +887,13 @@ function CreateClassModal({
             <div className="flex flex-wrap gap-2">
               {days.map((day) => {
                 const selected =
-                  form.schedule_days.includes(
-                    day
-                  );
+                  form.schedule_days.includes(day);
 
                 return (
                   <button
                     key={day}
                     type="button"
-                    onClick={() =>
-                      toggleDay(day)
-                    }
+                    onClick={() => toggleDay(day)}
                     className={`
                       rounded-lg border px-3 py-2 text-sm transition
                       ${
@@ -933,15 +910,12 @@ function CreateClassModal({
             </div>
           </Field>
 
-
           {/* Time */}
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Start Time">
               <input
                 type="time"
-                value={
-                  form.schedule_start
-                }
+                value={form.schedule_start}
                 onChange={(event) =>
                   updateField(
                     "schedule_start",
@@ -955,9 +929,7 @@ function CreateClassModal({
             <Field label="End Time">
               <input
                 type="time"
-                value={
-                  form.schedule_end
-                }
+                value={form.schedule_end}
                 onChange={(event) =>
                   updateField(
                     "schedule_end",
@@ -968,7 +940,6 @@ function CreateClassModal({
               />
             </Field>
           </div>
-
 
           {/* Footer */}
           <div className="flex justify-end gap-3 border-t border-neutral-800 pt-5">
@@ -996,6 +967,243 @@ function CreateClassModal({
   );
 }
 
+/* ============================================================
+   DELETE CLASS MODAL
+   ============================================================ */
+
+function DeleteClassModal({
+  user,
+  classItem,
+  onClose,
+  onDeleted,
+}) {
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [deleting, setDeleting] = useState(false);
+
+  async function handleConfirmDelete(event) {
+    event.preventDefault();
+
+    setError("");
+
+    if (!user?.email) {
+      setError(
+        "Unable to identify the logged-in account."
+      );
+      return;
+    }
+
+    if (!password) {
+      setError(
+        "Please enter your account password."
+      );
+      return;
+    }
+
+    setDeleting(true);
+
+    try {
+      /*
+       * Step 1:
+       * Re-authenticate the currently logged-in
+       * teacher or administrator.
+       */
+      const {
+        error: authError,
+      } = await supabase.auth.signInWithPassword({
+        email: user.email,
+        password,
+      });
+
+      if (authError) {
+        throw new Error(
+          "Incorrect password. Please try again."
+        );
+      }
+
+      /*
+       * Step 2:
+       * Delete the selected class.
+       *
+       * Supabase RLS policies determine whether
+       * the current account is authorized.
+       */
+      const {
+        error: deleteError,
+      } = await supabase
+        .from("classes")
+        .delete()
+        .eq("id", classItem.id);
+
+      if (deleteError) {
+        throw deleteError;
+      }
+
+      /*
+       * Step 3:
+       * Refresh the class list.
+       */
+      await onDeleted();
+    } catch (error) {
+      console.error(
+        "ARMS: Failed to delete class:",
+        error
+      );
+
+      let message =
+        error.message ||
+        "Failed to delete class.";
+
+      if (
+        message
+          .toLowerCase()
+          .includes("foreign key") ||
+        message
+          .toLowerCase()
+          .includes("violates")
+      ) {
+        message =
+          "This class cannot be deleted because it is still connected to other records such as enrolled students or monitoring data.";
+      }
+
+      setError(message);
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-md rounded-2xl border border-neutral-800 bg-neutral-950 shadow-2xl">
+        {/* Header */}
+        <div className="flex items-start justify-between border-b border-neutral-800 px-6 py-5">
+          <div className="flex items-start gap-3">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-red-950/60 text-red-400">
+              <AlertTriangle size={21} />
+            </div>
+
+            <div>
+              <h2 className="text-xl font-semibold text-white">
+                Delete Class
+              </h2>
+
+              <p className="mt-1 text-sm text-neutral-500">
+                This action requires account verification.
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={deleting}
+            className="rounded-lg p-2 text-neutral-400 transition hover:bg-neutral-800 hover:text-white disabled:opacity-50"
+            aria-label="Close delete modal"
+          >
+            <X size={19} />
+          </button>
+        </div>
+
+        {/* Content */}
+        <form
+          onSubmit={handleConfirmDelete}
+          className="space-y-5 p-6"
+        >
+          <div className="rounded-xl border border-red-900/70 bg-red-950/30 p-4">
+            <p className="text-sm text-red-300">
+              You are about to permanently delete:
+            </p>
+
+            <p className="mt-2 font-semibold text-white">
+              {classItem.class_name}
+            </p>
+
+            <p className="mt-1 text-xs text-red-300/70">
+              This action cannot be undone.
+            </p>
+          </div>
+
+          <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-4">
+            <div className="flex items-center gap-2">
+              <ShieldCheck
+                size={17}
+                className="text-neutral-400"
+              />
+
+              <p className="text-sm font-medium text-neutral-300">
+                Account verification
+              </p>
+            </div>
+
+            <p className="mt-2 text-xs leading-5 text-neutral-500">
+              Enter the password of the currently
+              logged-in teacher or administrator account.
+            </p>
+
+            <p className="mt-3 break-all text-sm text-neutral-300">
+              {user?.email}
+            </p>
+          </div>
+
+          {/* Error */}
+          {error && (
+            <div className="rounded-xl border border-red-900 bg-red-950/40 px-4 py-3 text-sm text-red-300">
+              {error}
+            </div>
+          )}
+
+          {/* Password */}
+          <label className="block">
+            <span className="mb-2 block text-sm font-medium text-neutral-300">
+              Account Password
+            </span>
+
+            <input
+              type="password"
+              value={password}
+              onChange={(event) =>
+                setPassword(event.target.value)
+              }
+              placeholder="Enter your password"
+              autoComplete="current-password"
+              disabled={deleting}
+              className="input"
+            />
+          </label>
+
+          {/* Footer */}
+          <div className="flex justify-end gap-3 border-t border-neutral-800 pt-5">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={deleting}
+              className="rounded-xl border border-neutral-800 px-4 py-3 text-sm text-neutral-300 transition hover:bg-neutral-900 disabled:opacity-50"
+            >
+              Cancel
+            </button>
+
+            <button
+              type="submit"
+              disabled={deleting || !password}
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-red-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {deleting && (
+                <Loader2
+                  size={17}
+                  className="animate-spin"
+                />
+              )}
+
+              {deleting
+                ? "Deleting..."
+                : "Confirm Delete"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
 
 /* ============================================================
    FIELD
@@ -1023,7 +1231,6 @@ function Field({
   );
 }
 
-
 /* ============================================================
    TIME FORMATTER
    ============================================================ */
@@ -1031,8 +1238,7 @@ function Field({
 function formatTime(value) {
   if (!value) return "";
 
-  const [hours, minutes] =
-    value.split(":");
+  const [hours, minutes] = value.split(":");
 
   const date = new Date();
 
@@ -1041,11 +1247,8 @@ function formatTime(value) {
     Number(minutes)
   );
 
-  return date.toLocaleTimeString(
-    [],
-    {
-      hour: "numeric",
-      minute: "2-digit",
-    }
-  );
+  return date.toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }

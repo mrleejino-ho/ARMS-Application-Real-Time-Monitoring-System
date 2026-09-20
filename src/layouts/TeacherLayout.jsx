@@ -16,7 +16,7 @@ export default function TeacherLayout() {
   }
 
   return (
-    <div className="min-h-screen bg-neutral-950 text-white">
+    <div className="min-h-screen bg-slate-50 text-slate-900">
       <Sidebar
         collapsed={sidebarCollapsed}
         mobileOpen={mobileOpen}
@@ -35,7 +35,7 @@ export default function TeacherLayout() {
           setMobileOpen={setMobileOpen}
         />
 
-        <main className="min-h-[calc(100vh-72px)] p-4 sm:p-6 lg:p-8">
+        <main className="arms-main min-h-[calc(100vh-72px)] p-4 sm:p-6 lg:p-8">
           <Outlet />
         </main>
       </div>

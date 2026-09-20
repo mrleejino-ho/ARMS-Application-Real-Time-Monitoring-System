@@ -833,7 +833,7 @@ function MonitoringCard({ item, onDismiss }) {
       </div>
 
       {/* Session Information */}
-      <div className="mt-6 rounded-xl border border-neutral-800 bg-neutral-950/70 p-4">
+      <div className="mt-6 rounded-xl border border-neutral-800 bg-neutral-945/70 p-4">
         <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500">
           Monitoring Session
         </p>
