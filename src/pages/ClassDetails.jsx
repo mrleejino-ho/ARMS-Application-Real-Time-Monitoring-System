@@ -509,21 +509,29 @@ function StudentHistoryModal({
         data: usageData,
         error: usageError,
       } = await supabase
-        .from("student_usage_history")
-        .select("*")
+        .from("appusage")
+        .select(
+          "id, student_id, package_name, usage_date, total_seconds, last_seen_at"
+        )
         .eq("student_id", student.id)
-        .eq("class_id", classId)
-        .gte("started_at", startISO)
-        .lte("started_at", endISO)
-        .order("started_at", {
-          ascending: true,
+        .eq("usage_date", selectedDate)
+        .order("last_seen_at", {
+          ascending: false,
         });
 
       if (usageError) {
         throw usageError;
       }
 
-      setUsageRecords(usageData || []);
+      setUsageRecords(
+        (usageData || []).map((record) => ({
+          ...record,
+          app_name: record.package_name,
+          started_at: record.last_seen_at,
+          duration_seconds: record.total_seconds,
+          was_violated: false,
+        }))
+      );
     } catch (error) {
       console.error(
         "Failed to load student history:",
